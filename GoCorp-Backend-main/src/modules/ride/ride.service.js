@@ -58,6 +58,7 @@ export const isOneEndOffice = (pickupLocation, dropLocation, officeLocation) => 
   );
 };
 
+//validate the invited employees
 export const validateInvitedEmployees = (invitedEmployeeIds) => {
   // Validate that invited_employee_ids is an array
   if (!Array.isArray(invitedEmployeeIds)) {

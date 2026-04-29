@@ -41,36 +41,37 @@ export const bookRide = async (req, res, next) => {
       invited_employee_ids = []
     } = req.body;
 
+    //criticall required feilds
     if (!employee_id || !office_id || !scheduled_at) {
       throw new ApiError(400, "Missing required fields");
     }
 
-    // Validate invited employees
+    //Validate invited employees
     const inviteValidation = validateInvitedEmployees(invited_employee_ids);
     if (!inviteValidation.valid) {
       throw new ApiError(400, inviteValidation.message);
     }
 
-    // step 1 — fetch office
+    //fetch office
     const office = await Office.findById(office_id);
     if (!office) throw new ApiError(404, "Office not found");
 
-    // step 1.5 — check if scheduled time is in the past
+    //check if scheduled time is in the past
     if (isPastTime(scheduled_at)) {
       throw new ApiError(400, "Rides cannot be scheduled in the past");
     }
 
-    // step 2 — check office hours
+    //check office hours
     if (!isWithinOfficeHours(scheduled_at, office)) {
       throw new ApiError(400, "Ride request is outside office hours");
     }
 
-    // step 3 — check duplicate booking
+    //check duplicate booking
     if (await isDuplicateBooking(employee_id, scheduled_at)) {
       throw new ApiError(400, "Duplicate ride request for the same time");
     }
 
-    //step 4 — check one end is office
+    //check one end is office
     if (
       !isOneEndOffice(pickup_location, drop_location, office.office_location)
     ) {
@@ -101,45 +102,16 @@ export const bookRide = async (req, res, next) => {
       otp: Math.floor(1000 + Math.random() * 9000).toString(),
     });
 
-    // if (!solo_preference) {
-    //   // Only run clustering when enough rides
-    //   const pendingCount = await RideRequest.countDocuments({
-    //     office_id,
-    //     direction,
-    //     status: "PENDING",
-    //   });
-
-    //   // if (pendingCount % 3 === 0) {
-    //   //   const clusters = await clusterRides({
-    //   //     office_id,
-    //   //     direction,
-    //   //     scheduled_at,
-    //   //   });
-
-    //   //   await assignClusters(clusters, {
-    //   //     office_id,
-    //   //     direction,
-    //   //     scheduled_at,
-    //   //   });
-    //   // }
-    // }
-
     if (ride) {
-      console.log("\n--- NEW RIDE CREATED ---");
-      console.log("Ride ID:", ride._id);
-      console.log("Status:", ride.status);
-      console.log("Scheduled At:", ride.scheduled_at);
-      console.log("Pickup Location:", ride.pickup_location.coordinates);
+      console.log("New Ride Created");
 
-      // Automatically submit to polling system
-      console.log("\n--- AUTO-SUBMITTING TO POLLING ---");
+      //submit ride to polling
       const pollingResult = await routeRideRequest(ride);
-      console.log("Polling Result:", pollingResult);
 
-      // Increment user's total rides
+      // Increase user's total ride +1
       await User.findByIdAndUpdate(employee_id, { $inc: { total_rides: 1 } });
 
-      // CRITICAL: Refetch the ride to get the MODIFIED status from the polling system
+      //Refetch the ride to get the MODIFIED status from the polling system
       const updatedRide = await RideRequest.findById(ride._id)
         .populate('employee_id', 'name email profile_image')
         .populate('office_id', 'name office_location shift_start shift_end')
@@ -1068,13 +1040,10 @@ export const getReportStats = async (req, res, next) => {
       }
     ]);
 
-    // Fill values
     formattedComparison.forEach(item => {
       const match = monthlyComparison.find(db => db._id.month === item.month && db._id.year === item.year);
       if (match) item.value = Math.round(match.totalSpend);
     });
-
-    console.log(`[Reports] Generated 6-month trend for office ${office_id}:`, formattedComparison.map(f => f.label).join(", "));
 
     res.status(200).json(new ApiResponse(200, "Report stats retrieved", {
       savings: {
@@ -1090,4 +1059,3 @@ export const getReportStats = async (req, res, next) => {
     next(error || new ApiError(500, "Error fetching report stats"));
   }
 };
-

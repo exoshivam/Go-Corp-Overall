@@ -13,7 +13,6 @@ const batchedSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Array of all employees/ride_ids in this batch (max 4)
     ride_ids: {
       type: [mongoose.Schema.Types.ObjectId],
       ref: "RideRequest",
@@ -33,7 +32,6 @@ const batchedSchema = new mongoose.Schema(
       max: 4,
     },
 
-    // Polyline for pickup route
     pickup_polyline: {
       type: {
         type: String,
@@ -52,7 +50,6 @@ const batchedSchema = new mongoose.Schema(
       coordinates: [Number],
     },
 
-    // Drop location
     drop_location: {
       type: {
         type: String,
@@ -62,7 +59,6 @@ const batchedSchema = new mongoose.Schema(
       coordinates: [Number],
     },
 
-    // Status progression
     status: {
       type: String,
       enum: [
@@ -77,7 +73,6 @@ const batchedSchema = new mongoose.Schema(
       default: "CREATED",
     },
 
-    // Driver assignment
     driver_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Driver",
@@ -85,7 +80,6 @@ const batchedSchema = new mongoose.Schema(
 
     assigned_at: Date,
 
-    // Driver acceptance tracking
     driver_accepted: {
       type: Boolean,
       default: false,
@@ -93,32 +87,24 @@ const batchedSchema = new mongoose.Schema(
 
     accepted_at: Date,
 
-    // Estimated fare for this batch
-    // Calculation: baseFare + (distance * perKmRate)
-    // baseFare = 40, perKmRate = 12
     estimated_fare: {
       type: Number,
       default: 0,
     },
 
-    // Total distance for the batch route in KM
     estimated_distance: {
       type: Number,
       default: 0,
     },
 
-    // Timestamp when batch was created from clustering
     batched_at: {
       type: Date,
       default: Date.now,
     },
 
-    // Metadata
     metadata: {
-      // Whether this was auto-batched due to time pressure
       force_batched: { type: Boolean, default: false },
       force_batch_reason: String,
-      // Which clustering record this came from
       clustering_id: mongoose.Schema.Types.ObjectId,
     },
   },

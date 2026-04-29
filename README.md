@@ -79,20 +79,20 @@ GoCorp solves the corporate transportation challenge by:
 │    │ Ride    │    │ Driver      │   │ Polling  │        │
 │    │ Module  │    │ Module      │   │ & Batch  │        │
 │    └────┬────┘    └──────┬──────┘   └─────┬────┘        │
-│         │                │                │              │
-│    ┌────┴────────────────┴────────────────┴─────┐       │
-│    │    MongoDB Database                        │       │
-│    │  (Rides, Users, Drivers, Clusters, etc)   │       │
-│    └──────────────────────────────────────────┘        │
-│                                                         │
-│    ┌──────────────────────────────────────┐            │
-│    │  External Services                   │            │
-│    │  • Razorpay (Payments)               │            │
-│    │  • NodeMailer (Email)                │            │
-│    │  • Leaflet Maps (Location)           │            │
-│    │  • Turf.js (Geospatial Analysis)     │            │
-│    └──────────────────────────────────────┘            │
-│                                                         │
+│         │                │                │                 │
+│    ┌────┴────────────────┴────────────────┴─────┐           │
+│    │    MongoDB Database                        │           │
+│    │  (Rides, Users, Drivers, Clusters, etc)   │            │
+│    └──────────────────────────────────────────┘             │
+│                                                             │
+│    ┌──────────────────────────────────────┐                 │
+│    │  External Services                   │                 │
+│    │  • Razorpay (Payments)               │                 │
+│    │  • NodeMailer (Email)                │                 │
+│    │  • Leaflet Maps (Location)           │                 │
+│    │  • Turf.js (Geospatial Analysis)     │                 │
+│    └──────────────────────────────────────┘                 │
+│                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 

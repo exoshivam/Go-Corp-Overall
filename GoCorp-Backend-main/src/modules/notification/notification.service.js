@@ -22,7 +22,6 @@ const getTransporter = () => {
 export const sendLowBalanceEmail = async (adminEmails, currentBalance, officeId = null) => {
     try {
         const toList = Array.isArray(adminEmails) ? adminEmails.join(', ') : adminEmails;
-        console.log(`[NotificationService] Attempting to send low balance email to ${toList}`);
 
         // Fetch office settings for priority if officeId is provided
         let priority = "HIGH"; // Default for low balance

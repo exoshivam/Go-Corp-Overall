@@ -60,7 +60,7 @@ const getDistanceToRoute = (pointCoords, polyline) => {
 };
 
 /**
- * STEP 2 (REFINED): Find the 1st point where new ride's route joins/diverges from the cluster's route
+ * STEP 2: Find the 1st point where new ride's route joins/diverges from the cluster's route
  */
 export const findFirstContactPoint = (newRoutePolyline, clusterPolyline, thresholdMeters = 200, fromEnd = false) => {
   try {
@@ -105,19 +105,18 @@ export const isSimilarDropLocation = (drop1, drop2, threshold = 200) => {
 };
 
 /**
- * Check if two pickup locations are similar (within 100 meters)
+ * Check if two pickup locations are similar (within 200 meters)
  */
 export const isSimilarPickupLocation = (pickup1, pickup2, threshold = 200) => {
   const distance = getDistance(pickup1, pickup2);
   return distance <= threshold;
 };
 
-/**
- * MAIN CLUSTERING LOGIC: can_cluster function
- * Symmetric logic for To Office and From Office rides
- */
+
+//decides if two rides can carpool
 export const can_cluster = async (newRide, existingCluster) => {
   try {
+    //Extract coordinates and times
     const newPickup = newRide.pickup_location.coordinates;
     const newDrop = newRide.drop_location.coordinates;
     const newTime = newRide.scheduled_at;
@@ -134,14 +133,14 @@ export const can_cluster = async (newRide, existingCluster) => {
     // Determine direction
     const isToOffice = firstRide.destination_type === "OFFICE";
 
-    // Check time window first (required for both directions)
+    // Check time window
     if (!isWithinTimeWindow(newTime, existingTime)) {
       return false;
     }
 
+    //for rides going to office
     if (isToOffice) {
-      // TO OFFICE: Primary check is the shared destination (Office)
-      // Logic: Relaxed drop check for office rides (trust office_id from query)
+      // Check destination is same office
       const distToDrop = getDistance(newDrop, existingDrop);
       if (distToDrop > 1000) { // Only reject if they are in different offices entirely (>1km)
         return false;
@@ -149,7 +148,6 @@ export const can_cluster = async (newRide, existingCluster) => {
 
       // CONDITION 1: Similar pickup location
       if (isSimilarPickupLocation(newPickup, existingPickup)) {
-        console.log(`[Clustering] Match found (TO OFFICE): Ride ${newRide._id} has similar pickup as cluster ${existingCluster._id}`);
         return true;
       }
 
@@ -159,38 +157,34 @@ export const can_cluster = async (newRide, existingCluster) => {
         if (contactPoint) {
           const distToNewPickup = getDistance(newPickup, contactPoint);
           if (distToNewPickup <= ROUTE_BUFFER_METERS) {
-            console.log(`[Clustering] Match found (TO OFFICE): Route intersection found within ${ROUTE_BUFFER_METERS}m of pickup`);
             return true;
           }
         }
       }
 
-      // CONDITION 3: Proximity Capture (Symmetric - Is New Pickup near Existing Route?)
+      // CONDITION 3: New pickup near cluster route
       if (existingCluster.pickup_polyline) {
         const distToRoute = getDistanceToRoute(newPickup, existingCluster.pickup_polyline);
         if (distToRoute <= ROUTE_BUFFER_METERS) {
-          console.log(`[Clustering] Match found (TO OFFICE): New pickup is near cluster route (dist: ${distToRoute.toFixed(0)}m)`);
           return true;
         }
       }
 
-      // CONDITION 4: Proximity Capture (Symmetric - Is Existing Pickup near New Route?)
+      // CONDITION 4: Cluster pickup near new route
       if (newRide.route_polyline) {
         const distToNewRoute = getDistanceToRoute(existingPickup, newRide.route_polyline);
         if (distToNewRoute <= ROUTE_BUFFER_METERS) {
-          console.log(`[Clustering] Match found (TO OFFICE): Existing cluster starts near new ride's route (dist: ${distToNewRoute.toFixed(0)}m)`);
           return true;
         }
       }
     } else {
-      // FROM OFFICE (Office to Home): Primary check is the shared origin (Office)
+      // FROM OFFICE: Must share the same office pickup point
       if (!isSimilarPickupLocation(newPickup, existingPickup)) {
         return false;
       }
 
       // CONDITION 1: Similar drop location (Home)
       if (isSimilarDropLocation(newDrop, existingDrop)) {
-        console.log(`[Clustering] Match found (FROM OFFICE): Ride ${newRide._id} has similar drop as cluster ${existingCluster._id}`);
         return true;
       }
 
@@ -200,7 +194,6 @@ export const can_cluster = async (newRide, existingCluster) => {
         if (contactPoint) {
           const distToNewDrop = getDistance(newDrop, contactPoint);
           if (distToNewDrop <= ROUTE_BUFFER_METERS) {
-            console.log(`[Clustering] Match found (FROM OFFICE): Route divergence found within ${ROUTE_BUFFER_METERS}m of drop`);
             return true;
           }
         }
@@ -210,7 +203,6 @@ export const can_cluster = async (newRide, existingCluster) => {
       if (existingCluster.pickup_polyline) {
         const distToRoute = getDistanceToRoute(newDrop, existingCluster.pickup_polyline);
         if (distToRoute <= ROUTE_BUFFER_METERS) {
-          console.log(`[Clustering] Match found (FROM OFFICE): New drop is near cluster route (dist: ${distToRoute.toFixed(0)}m)`);
           return true;
         }
       }
@@ -219,7 +211,6 @@ export const can_cluster = async (newRide, existingCluster) => {
       if (newRide.route_polyline) {
         const distToNewRoute = getDistanceToRoute(existingDrop, newRide.route_polyline);
         if (distToNewRoute <= ROUTE_BUFFER_METERS) {
-          console.log(`[Clustering] Match found (FROM OFFICE): Existing drop is near new ride's route (dist: ${distToNewRoute.toFixed(0)}m)`);
           return true;
         }
       }
@@ -291,7 +282,7 @@ export const updateGroupRouteAndOrder = async (rideIds, groupDoc, type = 'cluste
 
 /**
  * DISSOLUTION: Break a Batch or Cluster entirely and return survivors to pool
- * Triggered by any cancellation (Owner or Guest)
+ * Triggered by any cancellation
  */
 export const dissolveGroupAndReturnToPool = async (groupId, groupType, excludedRideIds = []) => {
   try {
@@ -356,6 +347,7 @@ export const dissolveGroupAndReturnToPool = async (groupId, groupType, excludedR
  */
 export const attemptSecondaryMerge = async (primaryGroup, primaryType = 'cluster') => {
   try {
+    //check if already full
     const currentSize = primaryType === 'cluster' ? primaryGroup.current_size : (primaryGroup.batch_size || primaryGroup.ride_ids.length);
     if (currentSize >= MAX_CLUSTER_SIZE) return primaryGroup;
 
@@ -385,25 +377,25 @@ export const attemptSecondaryMerge = async (primaryGroup, primaryType = 'cluster
       ...batches.map(b => ({ original: b, type: 'batch', size: b.batch_size }))
     ];
 
+    //test each candidate
     for (const candidate of candidates) {
       if (currentSize + candidate.size <= MAX_CLUSTER_SIZE) {
-        // Treat candidate as a "Virtual Ride" for compatibility check
+        //Create virtual representation for matching test
         const virtualRide = {
           _id: candidate.original._id,
           pickup_location: candidate.original.pickup_centroid || candidate.original.pickup_location,
           drop_location: candidate.original.drop_location,
           scheduled_at: candidate.original.scheduled_at,
           route_polyline: candidate.original.pickup_polyline,
-          // Extract destination type from any ride in the candidate group
           destination_type: (await RideRequest.findById(candidate.original.ride_ids[0]))?.destination_type
         };
 
+        //test if candidate matches primary group
         if (await can_cluster(virtualRide, primaryGroup)) {
-          console.log(`[Secondary Merge] Group ${candidate.original._id} swallowed by ${primaryGroup._id}`);
-          
+          //Absorb: move all candidate ride to primary
           const combinedRideIds = [...primaryGroup.ride_ids, ...candidate.original.ride_ids];
           
-          // 1. Update swallowed rides' status and links
+          //Update candidate's rides with primary's links
           const newStatus = primaryType === 'cluster' ? "IN_CLUSTERING" : "CLUSTERED";
           const linkUpdate = primaryType === 'cluster' 
             ? { cluster_id: primaryGroup._id, batch_id: null } 
@@ -414,14 +406,14 @@ export const attemptSecondaryMerge = async (primaryGroup, primaryType = 'cluster
             { status: newStatus, ...linkUpdate }
           );
 
-          // 2. Delete or mark swallowed group
+          //Delete candidate group (absorbed)
           if (candidate.type === 'cluster') {
             await Clustering.findByIdAndDelete(candidate.original._id);
           } else {
             await Batched.findByIdAndDelete(candidate.original._id);
           }
 
-          // 3. Update primary group with combined members and optimized route
+          // Reoptimize primary group
           return await updateGroupRouteAndOrder(combinedRideIds, primaryGroup, primaryType);
         }
       }
@@ -461,7 +453,7 @@ export const findBestCluster = async (newRide, officeId, scheduledAt) => {
       })
     ]);
 
-    // Normalize both into a compatible "group" format for sorting
+    // Combine into Common Format
     const availableGroups = [
       ...clusters.map(c => ({ original: c, type: 'cluster', size: c.current_size })),
       ...batches.map(b => ({ original: b, type: 'batch', size: b.batch_size }))
@@ -473,7 +465,13 @@ export const findBestCluster = async (newRide, officeId, scheduledAt) => {
 
     const newRideSize = newRide.invited_employee_ids.length + 1;
 
-    // Sort groups: prioritize by size compatibility
+    //Priority sorting based on new ride size
+    /**
+     * Eg.- if new ride size = 1:
+     *   Priority 1: Groups with 3 (1+3=4, full)
+     *   Priority 2: Groups with 2 (1+2=3)
+     *   Priority 3: Groups with 1 (1+1=2)
+     */
     let sortedGroups = [];
     if (newRideSize === 1) {
       sortedGroups = [
@@ -492,12 +490,12 @@ export const findBestCluster = async (newRide, officeId, scheduledAt) => {
       return null;
     }
 
-    // Check each group for compatibility
+    //Test Each Group for Location Match
     for (const group of sortedGroups) {
-      // Use can_cluster on the original document (works for both Batch and Cluster models)
+      //Checks location compatibility
       const canCluster = await can_cluster(newRide, group.original);
       if (canCluster) {
-        return group; // Return the normalized group object
+        return group; //Returns the FIRST matching group (highest priority)
       }
     }
 
@@ -590,19 +588,21 @@ export const handleNewCluster = async (ride, officeId, scheduledAt) => {
   }
 };
 
-/**
- * CASE 3: Unified Discovery and Merging for all non-solo-pref rides
- */
+//CASE 3: Matching engine - searches for compatible ride to cluster
 export const handleUnifiedGrouping = async (ride, officeId, scheduledAt) => {
   try {
+    //Calculate ride size (including requester)
     const rideSize = ride.invited_employee_ids.length + 1;
+    //Search for Best Matching Cluster
     const bestGroup = await findBestCluster(ride, officeId, scheduledAt);
 
+    //handle matching group if found
     if (bestGroup) {
+      //CASE A: Matched with Existing CLUSTER
       if (bestGroup.type === 'cluster') {
         let mergedCluster = await mergeClusters(ride, bestGroup.original);
 
-        // TRIGGER SECONDARY MERGE: Can this new cluster swallow others?
+        // TRIGGER SECONDARY MERGE (Tries to absorb other smallclusters)
         mergedCluster = await attemptSecondaryMerge(mergedCluster, 'cluster');
 
         // If reached size 4, promote to batch
@@ -613,10 +613,10 @@ export const handleUnifiedGrouping = async (ride, officeId, scheduledAt) => {
 
         return { case: 3, cluster_id: mergedCluster._id, batched_id: null, action: "merged" };
       } else {
-        // Merge directly into existing batch (Unified Pool)
+        // Merge directly into existing batch
         let updatedBatch = await mergeIntoBatch(ride, bestGroup.original);
         
-        // TRIGGER SECONDARY MERGE: Can this batch swallow clusters?
+        // trigger secondary merge
         updatedBatch = await attemptSecondaryMerge(updatedBatch, 'batch');
 
         return { case: 3, cluster_id: null, batched_id: updatedBatch._id, action: "joined_batch" };
@@ -668,7 +668,7 @@ export const handleCase6_GroupSize4 = async (ride) => {
     });
 
     await RideRequest.findByIdAndUpdate(ride._id, {
-      status: "CLUSTERED", // Group is treated as a full carpool batch
+      status: "CLUSTERED",
       batch_id: batched._id,
     });
 
@@ -684,12 +684,13 @@ export const handleCase6_GroupSize4 = async (ride) => {
  */
 export const mergeClusters = async (newRide, existingCluster) => {
   try {
+    //Calculate new rides people count
     const newRideId = new mongoose.Types.ObjectId(newRide._id);
     const newEmployees = await getEmployeesInRideGroup(newRide._id);
     const joinerSize = newEmployees.length;
 
     // ATOMIC JOIN: Only join if we haven't already and there is space
-    // This prevents race conditions where two simultaneous requests join the same cluster
+    //Prevents race conditions (multiple servers merging simultaneously)
     const refreshedCluster = await Clustering.findOneAndUpdate(
       { 
         _id: existingCluster._id, 
@@ -711,7 +712,7 @@ export const mergeClusters = async (newRide, existingCluster) => {
       throw new ApiError(400, "Cannot merge: cluster lost or would exceed max size");
     }
 
-    // GHOST CLEANUP: If the new ride was accidentally in another cluster, remove it
+    // GHOST CLEANUP: If the new ride was accidentally in another cluster, remove it from all others
     await Clustering.deleteMany({
       _id: { $ne: refreshedCluster._id },
       ride_ids: newRideId
@@ -719,8 +720,7 @@ export const mergeClusters = async (newRide, existingCluster) => {
 
     const allRideIds = refreshedCluster.ride_ids;
 
-    console.log(`[Merge-Audit] Atomic join to Cluster ${refreshedCluster._id}. New size: ${refreshedCluster.current_size}`);
-
+    //Updates all rides in the merged cluster
     await RideRequest.updateMany(
       { _id: { $in: allRideIds } },
       { 
@@ -730,7 +730,7 @@ export const mergeClusters = async (newRide, existingCluster) => {
       }
     );
 
-    // Update group route and order using shared helper
+    //Reoptimize Route
     return await updateGroupRouteAndOrder(allRideIds, refreshedCluster, 'cluster');
   } catch (error) {
     console.error("Error in mergeClusters:", error);
@@ -786,19 +786,16 @@ export const mergeIntoBatch = async (newRide, existingBatch) => {
   }
 };
 
-/**
- * Move a cluster to Batched
- */
+//move cluster to batched
 export const moveToBatched = async (cluster, forceBatched = false, reason = null) => {
   try {
-    // IDEMPOTENCY CHECK: Did someone already batch this cluster?
+    //Check if already batched (idempotency)
     const existingBatch = await Batched.findOne({ "metadata.clustering_id": cluster._id });
     if (existingBatch) {
-      console.log(`[Batching] Cluster ${cluster._id} already batched as ${existingBatch._id}. Skipping.`);
       return existingBatch;
     }
 
-    // ATOMIC CLAIM: Try to move status to BATCHING_IN_PROGRESS
+    // atomic claim: prevent race condition
     // This ensures only one server instance promotes this cluster
     const claimedCluster = await Clustering.findOneAndUpdate(
       { _id: cluster._id, status: { $in: ["IN_CLUSTERING", "READY_FOR_BATCH"] } },
@@ -807,13 +804,13 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
     );
 
     if (!claimedCluster) {
-      // If we couldn't claim it, it's either already BATCHED or being BATCHED by another process
+      // Another server already claimed it
       const retryBatch = await Batched.findOne({ "metadata.clustering_id": cluster._id });
       if (retryBatch) return retryBatch;
       throw new ApiError(400, "Cluster already processed or in progress");
     }
 
-    // Ensure all ride_ids are unique ObjectIds
+    // Ensure all ride_ids are unique Object ids
     const uniqueRideIds = [...new Set(claimedCluster.ride_ids.map(id => id.toString()))].map(id => new mongoose.Types.ObjectId(id));
 
     // Calculate distance and fare from polyline
@@ -822,7 +819,7 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
 
     const totalPeople = await getTotalPeopleInRides(uniqueRideIds);
 
-    // 1. Create the Batch record initially
+    // Create batch record
     const batched = await Batched.create({
       office_id: claimedCluster.office_id,
       scheduled_at: claimedCluster.scheduled_at,
@@ -841,16 +838,14 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
       },
     });
 
-    // 2. MANDATORY SORT
+    //MRoute Optimization (latetest optimization)
     const finalizedBatch = await updateGroupRouteAndOrder(uniqueRideIds, batched, 'batch');
 
-    // Update cluster status to indicate it has been completed
+    // Update cluster and rides
     await Clustering.findByIdAndUpdate(claimedCluster._id, {
       status: "BATCHED",
       batch_id: batched._id,
     });
-
-    console.log(`[Batching] Promoting cluster ${claimedCluster._id} to batch ${batched._id}`);
 
     // Update all rides in the batch
     await RideRequest.updateMany(
@@ -865,7 +860,7 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
     return batched;
   } catch (error) {
     // ROLLBACK ATOMIC CLAIM: If creation failed, move back to IN_CLUSTERING so it can be retried
-    if (error.code !== 11000) { // Don't rollback if it's a duplicate key error (meaning another process won)
+    if (error.code !== 11000) { 
       await Clustering.findByIdAndUpdate(cluster._id, { status: "IN_CLUSTERING" });
     }
     console.error("Error in moveToBatched:", error);
@@ -873,19 +868,17 @@ export const moveToBatched = async (cluster, forceBatched = false, reason = null
   }
 };
 
-
-/**
- * Route a new ride request through the polling system
- */
+//Route a new ride request through the polling system
 export const routeRideRequest = async (ride) => {
   try {
+    //total people in ride(including requester)
     const rideSize = ride.invited_employee_ids.length + 1;
+    //which office ride belongs
     const officeId = ride.office_id;
     const scheduledAt = ride.scheduled_at;
 
-    // Instantly create its real road route polyline to office if it doesn't exist
+    //Create actual road route between pickup and drop
     if (!ride.solo_estimated_fare || !ride.route_polyline || !ride.route_polyline.coordinates || ride.route_polyline.coordinates.length === 0) {
-      console.log(`[Clustering] Calculating solo fare and route for Ride ${ride._id}`);
       let coords = ride.route_polyline?.coordinates;
       if (!coords || coords.length === 0) {
         coords = await getRoute([ride.pickup_location.coordinates, ride.drop_location.coordinates]);
@@ -895,7 +888,8 @@ export const routeRideRequest = async (ride) => {
         type: "LineString",
         coordinates: coords
       };
-      
+
+      //calculate total km of the route
       const soloDistance = calculatePolylineDistance(soloPolyline);
       const soloFare = calculateEstimatedFare(soloDistance);
       
@@ -906,17 +900,17 @@ export const routeRideRequest = async (ride) => {
       });
     }
 
-    // Case 1: Solo preference + size 1 → Direct to Batched
+    // Case 1: Solo preference - skip clustering.
     if (rideSize === 1 && ride.solo_preference) {
       return await handleCase1_SoloPreference(ride);
     }
 
-    // Unified Discovery path for all group sizes (1-3)
+    //Try to find other rides to carpool with
     if (rideSize < 4) {
       return await handleUnifiedGrouping(ride, officeId, scheduledAt);
     }
 
-    // Case 6: Group size 4
+    // Case 6: Group size 4, auto-create batch immediately
     if (rideSize === 4) {
       return await handleCase6_GroupSize4(ride);
     }

@@ -7,10 +7,6 @@ import ApiError from "../../utils/ApiError.js";
 import { routeRideRequest } from "./polling.service.js";
 import { validationResult } from "express-validator";
 
-/**
- * Submit a ride request to the polling/clustering system
- * This endpoint takes a completed ride request and routes it through clustering rules
- */
 export const submitRideForPolling = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -20,18 +16,15 @@ export const submitRideForPolling = async (req, res, next) => {
 
     const { ride_id } = req.body;
 
-    // Get the ride request
     const ride = await RideRequest.findById(ride_id);
     if (!ride) {
       throw new ApiError(404, "Ride request not found");
     }
 
-    // Verify ride status is PENDING
     if (ride.status !== "PENDING") {
       throw new ApiError(400, `Ride must be in PENDING status, currently ${ride.status}`);
     }
 
-    // Route ride through polling system
     const result = await routeRideRequest(ride);
 
     let response = {
@@ -71,9 +64,6 @@ export const submitRideForPolling = async (req, res, next) => {
   }
 };
 
-/**
- * Get clustering status for a ride
- */
 export const getRideClusteringStatus = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -83,7 +73,6 @@ export const getRideClusteringStatus = async (req, res, next) => {
 
     const { ride_id } = req.params;
 
-    // Get the ride
     const ride = await RideRequest.findById(ride_id);
     if (!ride) {
       throw new ApiError(404, "Ride not found");
@@ -98,7 +87,6 @@ export const getRideClusteringStatus = async (req, res, next) => {
       drop_location: ride.drop_location.coordinates,
     };
 
-    // Check if in clustering
     if (ride.status === "IN_CLUSTERING") {
       const cluster = await Clustering.findOne({ ride_ids: ride_id });
       if (cluster) {
@@ -109,7 +97,6 @@ export const getRideClusteringStatus = async (req, res, next) => {
       }
     }
 
-    // Check if batched
     if (ride.batch_id) {
       const batch = await Batched.findById(ride.batch_id);
       if (batch) {
@@ -132,9 +119,6 @@ export const getRideClusteringStatus = async (req, res, next) => {
   }
 };
 
-/**
- * Get all clusters for an office at a specific time
- */
 export const getClustersByOfficeAndTime = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -179,9 +163,6 @@ export const getClustersByOfficeAndTime = async (req, res, next) => {
   }
 };
 
-/**
- * Get all batches for an office at a specific time
- */
 export const getBatchesByOfficeAndTime = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -231,9 +212,6 @@ export const getBatchesByOfficeAndTime = async (req, res, next) => {
   }
 };
 
-/**
- * Get detailed cluster info
- */
 export const getClusterDetails = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -269,9 +247,6 @@ export const getClusterDetails = async (req, res, next) => {
   }
 };
 
-/**
- * Get detailed batch info
- */
 export const getBatchDetails = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -309,10 +284,6 @@ export const getBatchDetails = async (req, res, next) => {
   }
 };
 
-/**
- * Accept a batch (driver accepts the batch assignment)
- * Updates driver_accepted, accepted_at, and status to DRIVER_ACCEPTED
- */
 export const acceptBatch = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -321,14 +292,13 @@ export const acceptBatch = async (req, res, next) => {
     }
 
     const { batch_id } = req.body;
-    const driver_id = req.driver._id; // Identify the driver from auth token
+    const driver_id = req.driver._id;
 
     const batch = await Batched.findById(batch_id);
     if (!batch) {
       throw new ApiError(404, "Batch not found");
     }
 
-    // ATOMIC ACCEPTANCE: Only allow if the batch hasn't been accepted yet
     const updatedBatch = await Batched.findOneAndUpdate(
       { 
         _id: batch_id, 
@@ -351,7 +321,6 @@ export const acceptBatch = async (req, res, next) => {
       .populate("office_id", "_id name office_location");
 
     if (!updatedBatch) {
-      // Check if it was already accepted by THIS driver (idempotency)
       const alreadyAccepted = await Batched.findOne({ _id: batch_id, driver_id, status: "DRIVER_ACCEPTED" });
       if (alreadyAccepted) {
          return res.status(200).json(new ApiResponse(200, "Batch already accepted by you", alreadyAccepted));
@@ -359,7 +328,6 @@ export const acceptBatch = async (req, res, next) => {
       throw new ApiError(400, "Batch already accepted by another driver or is unavailable");
     }
 
-    // NEW: Synchronize individual ride statuses within the batch and allocate fare
     if (updatedBatch && updatedBatch.ride_ids.length > 0) {
       const calculateDistance = (lat1, lon1, lat2, lon2) => {
         const R = 6371;
@@ -376,7 +344,6 @@ export const acceptBatch = async (req, res, next) => {
         const [dLng, dLat] = r.drop_location.coordinates;
         const distance = calculateDistance(pLat, pLng, dLat, dLng);
         
-        // Weighting logic: distance * (requester + guests)
         const occupantCount = 1 + (r.invited_employee_ids?.length || 0);
         const weightedDistance = distance * occupantCount;
         
@@ -387,8 +354,6 @@ export const acceptBatch = async (req, res, next) => {
       for (const rideMeta of rideMetaMap) {
         let allocatedFare = 0;
         
-        // Base calculation logic: Base ₹40 + ₹12 per KM (Solo Distance)
-        // We use this to ensure we NEVER have a 0 fare, even if the primary estimator fails.
         const rideRef = updatedBatch.ride_ids.find(r => r._id.toString() === rideMeta.id.toString());
         const soloDist = rideRef?.solo_distance || (rideMeta.weightedDistance / rideMeta.occupantCount) || 2.0;
         const calculatedMinFare = Math.round(40 + (soloDist * 12));
@@ -397,10 +362,8 @@ export const acceptBatch = async (req, res, next) => {
           const proportion = rideMeta.weightedDistance / totalWeightedDistance;
           allocatedFare = Math.round(updatedBatch.estimated_fare * proportion);
           
-          // Guarantee that the allocated fare is never lower than a reasonable minimum
           allocatedFare = Math.max(allocatedFare, Math.round(calculatedMinFare * 0.7)); 
         } else {
-          // Robust fallback if batch data is missing: Use the calculated minimum
           allocatedFare = calculatedMinFare;
         }
 
@@ -439,9 +402,6 @@ export const acceptBatch = async (req, res, next) => {
   }
 };
 
-/**
- * Get polling statistics for an office
- */
 export const getPollingStats = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -517,7 +477,6 @@ export const getPollingStats = async (req, res, next) => {
       },
     ]);
 
-    // FINANCE AGGREGATION: Total Spend & Savings for the current month
     const monthStart = new Date(dateObj.getFullYear(), dateObj.getMonth(), 1);
     const monthEnd = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0, 23, 59, 59);
 
@@ -541,10 +500,6 @@ export const getPollingStats = async (req, res, next) => {
 
     const finance = monthlyFinance[0] || { totalSpend: 0, totalRides: 0, totalDistance: 0 };
 
-    // Efficiency Calculation:
-    // Theoretical Solo Cost = base(40) * totalRides + (totalDistance * 12)
-    // Note: totalDistance in Batched is the OPTIMIZED route, so solo distance is usually higher.
-    // For simplicity: Solo Cost = (40 + (optimizedDistance/totalRides) * 12) * totalRides * 1.2 (20% detour for pooling)
     const theoreticalSoloCost = (finance.totalRides * 40) + (finance.totalDistance * 1.2 * 12);
     const savings = theoreticalSoloCost > finance.totalSpend
       ? ((theoreticalSoloCost - finance.totalSpend) / theoreticalSoloCost) * 100
@@ -569,10 +524,6 @@ export const getPollingStats = async (req, res, next) => {
   }
 };
 
-/**
- * Complete a batch (driver finishes all rides in the batch)
- * Updates batch status to COMPLETED and all individual ride statuses to COMPLETED
- */
 export const completeBatch = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -583,7 +534,6 @@ export const completeBatch = async (req, res, next) => {
     const { batch_id } = req.body;
     const driver_id = req.driver._id;
 
-    // Find the batch and verify it belongs to this driver
     const batch = await Batched.findById(batch_id);
     if (!batch) {
       throw new ApiError(404, "Batch not found");
@@ -593,11 +543,10 @@ export const completeBatch = async (req, res, next) => {
       throw new ApiError(403, "You are not authorized to complete this batch");
     }
 
-    // ATOMIC COMPLETION: Ensure we only process completion once
     const updatedBatch = await Batched.findOneAndUpdate(
       { 
         _id: batch_id, 
-        driver_id: driver_id, // Safety check: driver must own the batch
+        driver_id: driver_id,
         status: { $ne: "COMPLETED" } 
       },
       {
@@ -610,7 +559,6 @@ export const completeBatch = async (req, res, next) => {
     });
 
     if (!updatedBatch) {
-       // Check if already completed
        const isDone = await Batched.findOne({ _id: batch_id, status: "COMPLETED" });
        if (isDone) {
           return res.status(200).json(new ApiResponse(200, "Batch already marked as completed", isDone));
@@ -618,32 +566,25 @@ export const completeBatch = async (req, res, next) => {
        throw new ApiError(400, "Failed to complete batch: already completed or unauthorized");
     }
 
-    // Synchronize individual ride statuses and Update User lifetime stats
     if (updatedBatch && updatedBatch.ride_ids.length > 0) {
       const rideIds = updatedBatch.ride_ids.map(r => r._id);
       
-      // Update all rides to COMPLETED
       await RideRequest.updateMany(
         { _id: { $in: rideIds } },
         { $set: { status: "COMPLETED" } }
       );
 
-      // Increment User Lifetime Stats for every participant in every ride of the batch
       for (const ride of updatedBatch.ride_ids) {
-        // Core data for this specific ride
         const guests = Array.isArray(ride.invited_employee_ids) ? ride.invited_employee_ids : [];
         const participantIds = [ride.employee_id, ...guests];
         const occupantCount = participantIds.length;
 
-        // Dynamic Fallback: If allocated_fare is 0, estimate it based on ride solo distance or distance
-        // This ensures stats are updated even for legacy test data.
         let allocatedFare = ride.allocated_fare || 0;
-        let soloFarePotential = ride.solo_estimated_fare || (allocatedFare * 1.5) || 120; // fallback potential
+        let soloFarePotential = ride.solo_estimated_fare || (allocatedFare * 1.5) || 120;
 
         if (allocatedFare === 0) {
-            // Use ₹12/km logic as a safe fallback for the entire ride
             const baseFare = 40;
-            const dist = ride.solo_distance || 5.0; // Assume 5km if unknown
+            const dist = ride.solo_distance || 5.0;
             allocatedFare = Math.round(baseFare + (dist * 12));
             if (soloFarePotential === 120) soloFarePotential = Math.round(allocatedFare * 1.8);
         }
@@ -651,7 +592,6 @@ export const completeBatch = async (req, res, next) => {
         const sharePerPerson = Math.max(1, Math.round(allocatedFare / occupantCount));
         const soloSharePerPerson = Math.max(1, Math.round(soloFarePotential / occupantCount));
 
-        // Update each unique participant (Requester and Guests)
         const uniqueParticipants = [...new Set(participantIds.map(id => id.toString()))];
         
         for (const userId of uniqueParticipants) {

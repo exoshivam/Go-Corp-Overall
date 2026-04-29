@@ -3,14 +3,10 @@ import { Clustering } from "./clustering.model.js";
 import { RideRequest } from "../ride/ride.model.js";
 import { moveToBatched } from "./polling.service.js";
 
-/**
- * Job to force-batch clusters that are close to their scheduled time
- * Runs every minute
- */
+//Force Batch
 export const initForceBatchJob = () => {
   cron.schedule("* * * * *", async () => {
     try {
-      // Find clusters that are scheduled within the next 10 minutes
       const tenMinutesFromNow = new Date(Date.now() + 10 * 60 * 1000);
 
       const incomingClusters = await Clustering.find({
@@ -25,7 +21,6 @@ export const initForceBatchJob = () => {
 
         for (const cluster of incomingClusters) {
           try {
-            // Move cluster to Batched
             const batched = await moveToBatched(
               cluster,
               true,
@@ -36,8 +31,6 @@ export const initForceBatchJob = () => {
               `[Force Batch Job] Successfully force-batched cluster ${cluster._id} to batch ${batched._id}`
             );
 
-            // Notify users/system about batching
-            // This could send notifications, update real-time events, etc.
           } catch (error) {
             console.error(
               `[Force Batch Job] Error force-batching cluster ${cluster._id}:`,
@@ -54,10 +47,6 @@ export const initForceBatchJob = () => {
   console.log("[Force Batch Job] Initialized - runs every minute");
 };
 
-/**
- * Additional cleanup job to handle orphaned clusters/batches
- * DEACTIVATED: User requested indefinite waiting (max 1 day logic applies elsewhere)
- */
 export const initCleanupJob = () => {
   // cron.schedule("*/5 * * * *", async () => {
   //   try {

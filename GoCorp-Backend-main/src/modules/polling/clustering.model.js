@@ -13,7 +13,6 @@ const clusteringSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Array of ride_ids (RideRequest._id) that are part of this cluster
     ride_ids: {
       type: [mongoose.Schema.Types.ObjectId],
       ref: "RideRequest",
@@ -27,14 +26,11 @@ const clusteringSchema = new mongoose.Schema(
       },
     },
 
-    // Additional metadata about the cluster
     current_size: {
       type: Number,
       default: 0,
     },
 
-    // Polyline route from OSRM or other routing service
-    // Contains GeoJSON LineString for the cluster pickup route
     pickup_polyline: {
       type: {
         type: String,
@@ -43,7 +39,6 @@ const clusteringSchema = new mongoose.Schema(
       coordinates: [[Number]],
     },
 
-    // Average/centroid of all pickup points
     pickup_centroid: {
       type: {
         type: String,
@@ -53,7 +48,6 @@ const clusteringSchema = new mongoose.Schema(
       coordinates: [Number],
     },
 
-    // Common drop location (or centroid if varied)
     drop_location: {
       type: {
         type: String,
@@ -63,28 +57,22 @@ const clusteringSchema = new mongoose.Schema(
       coordinates: [Number],
     },
 
-    // Status of the cluster
     status: {
       type: String,
       enum: ["IN_CLUSTERING", "READY_FOR_BATCH", "BATCHING_IN_PROGRESS", "BATCHED"],
       default: "IN_CLUSTERING",
     },
 
-    // Timestamp when cluster is ready to be batched
     ready_for_batch_at: Date,
 
-    // Reference to the batch if this cluster has been moved to Batched
     batch_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "RideBatch",
     },
 
-    // Metadata for optimization/debugging
     metadata: {
-      // Track why this cluster was force-batched
       force_batched: { type: Boolean, default: false },
       force_batch_reason: String,
-      // Track merge history
       merge_events: [
         {
           merged_cluster_id: mongoose.Schema.Types.ObjectId,
@@ -99,7 +87,7 @@ const clusteringSchema = new mongoose.Schema(
   }
 );
 
-// Indexes for efficient querying
+// Indexes
 clusteringSchema.index({ office_id: 1, scheduled_at: 1, status: 1 });
 clusteringSchema.index({ scheduled_at: 1, status: 1 });
 clusteringSchema.index({ pickup_location: "2dsphere" });
